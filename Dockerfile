@@ -16,7 +16,6 @@ RUN R -e "install.packages(c('dplyr', 'stringr', 'readr', 'ggplot2', 'optparse')
 RUN R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cloud.r-project.org'); BiocManager::install(c('VariantAnnotation'), update=FALSE, ask=FALSE)"
 
 # --- Копируем R-скрипты (VCF статистика) ---
-# Предположим, твой скрипт называется vcf_metrics.R и лежит в scripts/
 COPY scripts/ /usr/local/bin/
 
 # --- Делаем скрипты исполняемыми ---
