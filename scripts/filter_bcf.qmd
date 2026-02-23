@@ -1,0 +1,73 @@
+```{r}
+#===============================
+# VCF Summary Script (tidy)
+#===============================
+
+#| message: false
+#| warning: false
+
+library(VariantAnnotation)
+library(dplyr)
+library(ggplot2)
+
+# -----------------------------
+# 1️⃣ Входной файл VCF
+# -----------------------------
+vcf_path <- "../raw/SSP_1378_BB254867491.vcf.gz"
+
+# читаем VCF
+vcf <- readVcf(vcf_path, "genome")  # "genome" или сборка
+
+# -----------------------------
+# 2️⃣ INFO и GP
+# -----------------------------
+# INFO
+info_vector <- as.numeric(info(vcf)$INFO)
+
+# GP
+gp_matrix <- geno(vcf)$GP[,1,]  # 1 образец → матрица вариантов × 3
+max_gp <- apply(gp_matrix, 1, max)
+
+# -----------------------------
+# 3️⃣ Создаём summary_df
+# -----------------------------
+summary_df <- data.frame(
+  CHROM = as.character(seqnames(rowRanges(vcf))),
+  POS   = start(rowRanges(vcf)),
+  INFO  = info_vector,
+  max_GP = max_gp
+)
+
+# -----------------------------
+# 4️⃣ Сводные статистики
+# -----------------------------
+summary_stats <- summary_df %>%
+  summarise(
+    total_variants = n(),
+    mean_INFO      = mean(INFO, na.rm = TRUE),
+    mean_max_GP    = mean(max_GP, na.rm = TRUE)
+  )
+
+print(summary_stats)
+
+# -----------------------------
+# 5️⃣ Гистограммы
+# -----------------------------
+# INFO
+ggplot(summary_df, aes(x=INFO)) +
+  geom_histogram(bins=50, fill="steelblue", color="black") +
+  theme_minimal() +
+  labs(title="Distribution of INFO before filtering", x="INFO", y="Count")
+
+# max_GP
+ggplot(summary_df, aes(x=max_GP)) +
+  geom_histogram(bins=50, fill="darkgreen", color="black") +
+  theme_minimal() +
+  labs(title="Distribution of max GP before filtering", x="max_GP", y="Count")
+
+# -----------------------------
+# 6️⃣ Сохраняем таблицу (если нужно)
+# -----------------------------
+write.csv(summary_df, "vcf_metrics_summary.csv", row.names = FALSE)
+```
+
