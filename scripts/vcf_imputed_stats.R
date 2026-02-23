@@ -13,9 +13,9 @@ suppressPackageStartupMessages({
 #   opt <- list(
 #     input = "raw/SSP_1378_BB254867491.vcf.gz",
 #     output = "vcf_stats_out"
-#   )
+#   ) 
 # }
-
+ 
 # ---- define CLI options ----
 if (!exists("opt")) {
   option_list <- list(
