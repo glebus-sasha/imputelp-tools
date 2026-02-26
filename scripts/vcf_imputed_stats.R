@@ -9,11 +9,11 @@ suppressPackageStartupMessages({
 })
 
 # ---- DEBUG / DEV PARAMETERS (uncomment for testing) ----
-# if (FALSE) {
+# if (TRUE) {
 #   opt <- list(
-#     input = "raw/SSP_1378_BB254867491.vcf.gz",
+#     input = "raw/SSP_1378_BB254867501_filtered.bcf",
 #     output = "vcf_stats_out"
-#   ) 
+#   )
 # }
  
 # ---- define CLI options ----
@@ -36,7 +36,8 @@ if (!dir.exists(opt$output)) dir.create(opt$output, recursive = TRUE)
 
 # ---- read VCF ----
 cat("Reading VCF...\n")
-vcf <- readVcf(opt$input, "genome")  # genome can be replaced with specific assembly
+param <- ScanVcfParam()
+vcf <- readVcf(opt$input, param = param)
 
 # ---- extract INFO and GP ----
 info_vector <- as.numeric(info(vcf)$INFO)
