@@ -9,13 +9,13 @@ suppressPackageStartupMessages({
 })
 
 # ---- DEBUG / DEV PARAMETERS (uncomment for testing) ----
-# if (TRUE) {
-#   opt <- list(
-#     input = "raw/SSP_1378_BB254867501_filtered.bcf",
-#     output = "vcf_stats_out"
-#   )
-# }
- 
+if (TRUE) {
+  opt <- list(
+    input = "raw/SSP_1378_BB254867491.vcf.gz",
+    output = "vcf_stats_out"
+  )
+}
+
 # ---- define CLI options ----
 if (!exists("opt")) {
   option_list <- list(
@@ -36,7 +36,7 @@ if (!dir.exists(opt$output)) dir.create(opt$output, recursive = TRUE)
 
 # ---- read VCF ----
 cat("Reading VCF...\n")
-param <- ScanVcfParam()
+param <- ScanVcfParam(info="INFO", geno="GP")
 vcf <- readVcf(opt$input, param = param)
 
 # ---- extract INFO and GP ----
