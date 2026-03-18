@@ -1,0 +1,228 @@
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+library(vcfR)
+library(readxl)
+```
+
+## Imputed
+
+```{r}
+vcf_dir <- "data/bcftools_view_imputed"
+vcf_dir_original <- "data/bcftools_view"
+passport <- "data/20250331_kira_monogen_passports_final_table.xlsx"
+descr <- "data/Описание_образцов_RnD_low_pass_PCRfree_SGGM_18032025.xlsx"
+interpretation <- "data/SNV_53_interpretation.xlsx"
+```
+
+```{r}
+passport_df <- read_excel(passport) %>% 
+  select(`Probe Code`, ABCG2:TTF1)
+descr_df <- read_excel(descr) %>% 
+  filter(Источник == 'Мираторг') %>% 
+  select(sid = `Название образца`, `Probe Code` = Наименование) 
+interpretation_df <- read_excel(interpretation, sheet = 'Chip') %>%
+  mutate(
+    Chr =ifelse(Chr == "NA" | is.na(Chr), NA, str_remove(Chr, "\\.0$"))
+  ) %>% 
+  select(Short_name = Short_name_chip, Symptom:OMIA_ID, Chr, START:END)
+```
+
+```{r}
+#| message: false
+# Получаем список всех .vcf файлов в папке
+vcf_files <- list.files(path = vcf_dir, pattern = "\\.vcf$", full.names = TRUE)
+
+# Функция для обработки каждого файла
+process_vcf <- function(file_path) {
+  # Извлекаем имя файла без пути
+  file_name <- basename(file_path)
+  
+  # Разбиваем имя файла по подчеркиваниям
+  name_parts <- str_split(file_name, "_")[[1]]
+  
+  # Извлекаем нужные части имени (RnD_PCRfree_1 или RnD_PCRfree_2)
+  sample_name <- paste(name_parts[6], name_parts[7], name_parts[8], sep = "_")
+  
+  # Читаем VCF файл
+  vcf <- read.vcfR(file_path, verbose = FALSE)
+  
+  # Преобразуем в tidy-формат
+  vcf_df <- vcfR2tidy(vcf, single_frame = TRUE)$dat
+  
+  # Добавляем колонку с именем образца
+  vcf_df %>% mutate(sid = sample_name)
+}
+
+passport_long <- passport_df %>%
+  pivot_longer(
+    cols = -`Probe Code`,  # Все столбцы кроме Probe Code
+    names_to = "Short_name",
+    values_to = "status_chip"
+  ) %>%
+  rename(Probe_Code = `Probe Code`)  # Приводим к единому названию
+
+# Применяем функцию ко всем файлам и объединяем результаты
+combined_df <- map_dfr(vcf_files, process_vcf) %>% 
+  left_join(descr_df) %>%
+  mutate(status = case_when(
+    gt_GT == "0|0" ~ "FREE",
+    gt_GT %in% c("0|1", "1|0") ~ "CARRIER",
+    gt_GT == "1|1" ~ "AFFECTED",
+    TRUE ~ NA_character_  # для всех остальных случаев (если есть)
+  )) %>% 
+  select(sid, Probe_Code = `Probe Code`, CHROM, POS, status) %>% 
+  left_join(
+    interpretation_df,
+    by = c("CHROM" = "Chr", "POS" = "END")
+  ) %>%
+  left_join(passport_long, 
+            by = c("Probe_Code", "Short_name"))
+```
+
+
+```{r}
+wide_df <- combined_df %>%
+  # Создаем комбинированную колонку со статусами через "/"
+  mutate(combined_status = paste(status, status_chip, sep = "/")) %>%
+  # Выбираем только нужные колонки
+  select(sid, Probe_Code, Short_name, combined_status) %>%
+  # Преобразуем в широкий формат
+  pivot_wider(
+    id_cols = c(sid, Probe_Code),
+    names_from = Short_name,
+    values_from = combined_status
+  ) %>%
+  # Переименовываем колонки для соответствия
+  rename(`Probe Code` = Probe_Code)
+
+```
+
+
+## Original
+
+```{r}
+
+vcf_files_original <- list.files(path = vcf_dir_original, pattern = "\\.vcf$", full.names = TRUE)
+
+process_vcf_safe <- function(file_path) {
+  # Читаем VCF файл
+  vcf <- read.vcfR(file_path, verbose = FALSE)
+  
+  # Проверяем, есть ли данные в файле
+  if (nrow(vcf@gt) == 0 || nrow(vcf@fix) == 0) {
+    message(paste("Файл", basename(file_path), "пустой - пропускаем"))
+    return(NULL)
+  }
+  
+  # Извлекаем имя файла без пути
+  file_name <- basename(file_path)
+  name_parts <- str_split(file_name, "_")[[1]]
+  sample_name <- paste(name_parts[6], name_parts[7], name_parts[8], sep = "_")
+  
+  # Преобразуем в tidy-формат
+  vcf_df <- vcfR2tidy(vcf, single_frame = TRUE)$dat
+  vcf_df %>% mutate(sid = sample_name)
+}
+
+# Обрабатываем только непустые файлы
+combined_df_original <- map_dfr(vcf_files_original, process_vcf_safe) %>% 
+  {
+    if (is.null(.)) {
+      stop("Все VCF файлы пустые! Проверьте параметры bcftools")
+    } else .
+  } %>%
+  left_join(descr_df) %>%
+  mutate(status = case_when(
+    gt_GT == "0/0" ~ "FREE",
+    gt_GT %in% c("0/1", "1/0") ~ "CARRIER",
+    gt_GT == "1/1" ~ "AFFECTED",
+    TRUE ~ NA_character_
+  )) %>% 
+  select(sid, Probe_Code = `Probe Code`, CHROM, POS, status) %>% 
+  left_join(
+    interpretation_df,
+    by = c("CHROM" = "Chr", "POS" = "END")
+  ) %>%
+  left_join(passport_long, 
+            by = c("Probe_Code", "Short_name"))
+```
+
+## Both
+
+```{r}
+original_status <- combined_df_original %>% 
+  select(Probe_Code, Short_name, status) %>% 
+  mutate(source = "original")
+low_pass_status <- combined_df %>% 
+  select(Probe_Code, Short_name, status) %>% 
+  mutate(source = "lowpass")
+chip_status <- passport_long %>% 
+  select(Probe_Code, Short_name, status = status_chip) %>% 
+  mutate(source = "chip")
+combined_data <- bind_rows(original_status, low_pass_status, chip_status)
+
+# Преобразуем в широкий формат с объединением статусов
+wide_format <- combined_data %>%
+  pivot_wider(
+    id_cols = c(Probe_Code, Short_name),
+    names_from = source,
+    values_from = status,
+    values_fn = list(status = ~paste(unique(.), collapse = "|")), # объединяем дубликаты
+    values_fill = "NA" # заполняем пропуски
+  ) %>% 
+  mutate(
+    status_combined = case_when(
+      !is.na(original) & !is.na(lowpass) & !is.na(chip) ~ paste0(original, "/", lowpass, "|", chip),
+      !is.na(original) & !is.na(lowpass) ~ paste0(original, "/", lowpass, "|NA"),
+      !is.na(original) & !is.na(chip) ~ paste0(original, "/NA|", chip),
+      !is.na(lowpass) & !is.na(chip) ~ paste0("NA/", lowpass, "|", chip),
+      !is.na(original) ~ paste0(original, "/NA|NA"),
+      !is.na(lowpass) ~ paste0("NA/", lowpass, "|NA"),
+      !is.na(chip) ~ paste0("NA/NA|", chip),
+      TRUE ~ "NA/NA|NA"
+    )
+  ) %>%
+  select(Probe_Code, Short_name, status_combined) %>%
+  pivot_wider(
+    names_from = Short_name,
+    values_from = status_combined,
+    values_fill = "NA/NA|NA"
+  )
+write_csv2(wide_format, "original_LP_CHIP.csv")
+```
+
+Выберем те в которых original и LP не NA / NA для всех коров
+```{r}
+# Сначала создаем функцию для проверки формата original/lowpass
+check_original_lowpass <- function(status_string) {
+  # Разделяем строку по "|" чтобы получить часть до | (original/lowpass)
+  parts <- strsplit(status_string, "\\|")[[1]]
+  if (length(parts) < 2) return(FALSE)
+  
+  original_lowpass_part <- parts[1]  # часть до | (original/lowpass)
+  
+  # Проверяем, что это не "NA/NA"
+  return(original_lowpass_part != "NA/NA")
+}
+
+# Альтернативный вариант проверки с использованием регулярных выражений
+check_original_lowpass_regex <- function(status_string) {
+  # Проверяем, что до символа | есть что-то отличное от "NA/NA"
+  grepl("^(?!NA/NA\\|).*\\|", status_string, perl = TRUE)
+}
+
+# Выбираем только те столбцы, где хотя бы в одной строке original/lowpass не NA/NA
+filtered_wide_format <- wide_format %>%
+  select(Probe_Code, where(function(col) {
+    # Пропускаем столбец Probe_Code
+    if (all(col == wide_format$Probe_Code)) return(TRUE)
+    
+    # Проверяем каждый элемент столбца
+    any(sapply(col, check_original_lowpass))
+  }))
+```
+
+
