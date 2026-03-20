@@ -42,8 +42,14 @@ prefix <- args$output_prefix
 passport_df <- read_excel(args$passport) %>% 
   select(`Probe Code`, ABCG2:TTF1)
 
-descr_df <- read_excel(args$descr) %>% 
-  filter(Источник == 'Мираторг') %>% 
+descr_df <- read_excel(args$descr) %>%
+  rename_with(~ stringr::str_squish(.x))
+
+source_col <- names(descr_df)[stringr::str_detect(names(descr_df), "^Источник")]
+stopifnot(length(source_col) == 1)
+
+descr_df <- descr_df %>%
+  filter(.data[[source_col]] == "Мираторг") %>%
   select(
     sid = `Название образца`,
     `Probe Code` = Наименование
@@ -156,6 +162,6 @@ ggsave(paste0(prefix, "_heatmap.png"), plot = p, width = 12, height = 8)
 # HTML график (интерактивный)
 # ---------------------------
 interactive_plot <- ggplotly(p)
-htmlwidgets::saveWidget(interactive_plot, paste0(prefix, "_heatmap.html"))
+htmlwidgets::saveWidget(interactive_plot, paste0(prefix, "_heatmap.html"), selfcontained = TRUE)
 
 cat("Done! All results saved with prefix:", prefix, "\n")
