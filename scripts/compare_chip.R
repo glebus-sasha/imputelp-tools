@@ -11,11 +11,11 @@ suppressPackageStartupMessages({
 # ---------------------------
 # DEBUG / PROD параметры
 # ---------------------------
-DEBUG <- FALSE
+DEBUG <- TRUE
 
 if (DEBUG) {
   args <- list(
-    vcf_dir = "raw/bcftools_view_imputed",
+    vcf_dir = "raw/imputed",
     passport = "raw/20250331_kira_monogen_passports_final_table.xlsx",
     descr = "raw/Описание_образцов_RnD_low_pass_PCRfree_SGGM_18032025.xlsx",
     interpretation = "raw/SNV_53_interpretation.xlsx",
@@ -51,7 +51,12 @@ descr_df <- read_excel(args$descr) %>%
 
 interpretation_df <- read_excel(args$interpretation, sheet = 'Chip') %>%
   mutate(
-    Chr = ifelse(Chr == "NA" | is.na(Chr), NA, str_remove(Chr, "\\.0$"))
+    # Преобразуем Chr: NA остаётся NA, иначе добавляем префикс "chr" и убираем ".0" если есть
+    Chr = ifelse(
+      is.na(Chr) | Chr == "NA",
+      NA,
+      paste0("chr", str_remove(Chr, "\\.0$"))
+    )
   ) %>% 
   select(
     Short_name = Short_name_chip,
@@ -65,8 +70,7 @@ interpretation_df <- read_excel(args$interpretation, sheet = 'Chip') %>%
 # ---------------------------
 process_vcf <- function(file_path) {
   file_name <- basename(file_path)
-  name_parts <- str_split(file_name, "_")[[1]]
-  sample_name <- paste(name_parts[6], name_parts[7], name_parts[8], sep = "_")
+  sample_name <- tools::file_path_sans_ext(file_name)  # убираем .vcf, используем как sid
   
   vcf <- read.vcfR(file_path, verbose = FALSE)
   vcf_df <- vcfR2tidy(vcf, single_frame = TRUE)$dat
