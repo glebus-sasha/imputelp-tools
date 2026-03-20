@@ -11,7 +11,7 @@ suppressPackageStartupMessages({
 # ---------------------------
 # DEBUG / PROD параметры
 # ---------------------------
-DEBUG <- TRUE
+DEBUG <- FALSE
 
 if (DEBUG) {
   args <- list(
