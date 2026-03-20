@@ -11,7 +11,7 @@ suppressPackageStartupMessages({
 # ---------------------------
 # DEBUG / PROD параметры
 # ---------------------------
-DEBUG <- FALSE
+DEBUG <- TRUE
 
 if (DEBUG) {
   args <- list(
@@ -42,14 +42,8 @@ prefix <- args$output_prefix
 passport_df <- read_excel(args$passport) %>% 
   select(`Probe Code`, ABCG2:TTF1)
 
-descr_df <- read_excel(args$descr) %>%
-  rename_with(~ stringr::str_squish(.x))
-
-source_col <- names(descr_df)[stringr::str_detect(names(descr_df), "^Источник")]
-stopifnot(length(source_col) == 1)
-
-descr_df <- descr_df %>%
-  filter(.data[[source_col]] == "Мираторг") %>%
+descr_df <- read_excel(args$descr) %>% 
+  filter(Источник == 'Мираторг') %>% 
   select(
     sid = `Название образца`,
     `Probe Code` = Наименование
