@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Устанавливаем CRAN пакеты ---
-RUN R -e "install.packages(c('dplyr', 'stringr', 'readr', 'ggplot2', 'readxl', 'plotly', 'vcfR', 'tidyr'), repos='https://cloud.r-project.org')"
+RUN R -e "install.packages(c('dplyr', 'stringr', 'readr', 'ggplot2', 'optparse', 'readxl', 'plotly', 'vcfR', 'tidyr'), repos='https://cloud.r-project.org')"
 
 # --- Устанавливаем Bioconductor пакеты ---
 RUN R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cloud.r-project.org'); BiocManager::install(c('VariantAnnotation'), update=FALSE, ask=FALSE)"
