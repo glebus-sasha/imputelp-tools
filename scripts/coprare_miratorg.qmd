@@ -10,11 +10,11 @@ library(readxl)
 ## Imputed
 
 ```{r}
-vcf_dir <- "data/bcftools_view_imputed"
-vcf_dir_original <- "data/bcftools_view"
-passport <- "data/20250331_kira_monogen_passports_final_table.xlsx"
-descr <- "data/Описание_образцов_RnD_low_pass_PCRfree_SGGM_18032025.xlsx"
-interpretation <- "data/SNV_53_interpretation.xlsx"
+vcf_dir <- "../raw/imputed"
+vcf_dir_original <- "../raw/bcftools_view"
+passport <- "../raw/20250331_kira_monogen_passports_final_table.xlsx"
+descr <- "../raw/Описание_образцов_RnD_low_pass_PCRfree_SGGM_18032025.xlsx"
+interpretation <- "../raw/SNV_53_interpretation.xlsx"
 ```
 
 ```{r}
@@ -25,9 +25,19 @@ descr_df <- read_excel(descr) %>%
   select(sid = `Название образца`, `Probe Code` = Наименование) 
 interpretation_df <- read_excel(interpretation, sheet = 'Chip') %>%
   mutate(
-    Chr =ifelse(Chr == "NA" | is.na(Chr), NA, str_remove(Chr, "\\.0$"))
+    # Преобразуем Chr: NA остаётся NA, иначе добавляем префикс "chr" и убираем ".0" если есть
+    Chr = ifelse(
+      is.na(Chr) | Chr == "NA",
+      NA,
+      paste0("chr", str_remove(Chr, "\\.0$"))
+    )
   ) %>% 
-  select(Short_name = Short_name_chip, Symptom:OMIA_ID, Chr, START:END)
+  select(
+    Short_name = Short_name_chip,
+    Symptom:OMIA_ID,
+    Chr,
+    START:END
+  )
 ```
 
 ```{r}
@@ -35,67 +45,56 @@ interpretation_df <- read_excel(interpretation, sheet = 'Chip') %>%
 # Получаем список всех .vcf файлов в папке
 vcf_files <- list.files(path = vcf_dir, pattern = "\\.vcf$", full.names = TRUE)
 
-# Функция для обработки каждого файла
 process_vcf <- function(file_path) {
-  # Извлекаем имя файла без пути
   file_name <- basename(file_path)
+  sample_name <- tools::file_path_sans_ext(file_name)  # убираем .vcf, используем как sid
   
-  # Разбиваем имя файла по подчеркиваниям
-  name_parts <- str_split(file_name, "_")[[1]]
-  
-  # Извлекаем нужные части имени (RnD_PCRfree_1 или RnD_PCRfree_2)
-  sample_name <- paste(name_parts[6], name_parts[7], name_parts[8], sep = "_")
-  
-  # Читаем VCF файл
   vcf <- read.vcfR(file_path, verbose = FALSE)
-  
-  # Преобразуем в tidy-формат
   vcf_df <- vcfR2tidy(vcf, single_frame = TRUE)$dat
   
-  # Добавляем колонку с именем образца
   vcf_df %>% mutate(sid = sample_name)
 }
 
 passport_long <- passport_df %>%
-  pivot_longer(
-    cols = -`Probe Code`,  # Все столбцы кроме Probe Code
-    names_to = "Short_name",
-    values_to = "status_chip"
-  ) %>%
-  rename(Probe_Code = `Probe Code`)  # Приводим к единому названию
+  pivot_longer(cols = -`Probe Code`,
+               names_to = "Short_name",
+               values_to = "status_chip") %>%
+  right_join(descr_df) %>% 
+  rename(Probe_Code = `Probe Code`)
+```
 
-# Применяем функцию ко всем файлам и объединяем результаты
+
+```{r}
 combined_df <- map_dfr(vcf_files, process_vcf) %>% 
   left_join(descr_df) %>%
-  mutate(status = case_when(
-    gt_GT == "0|0" ~ "FREE",
-    gt_GT %in% c("0|1", "1|0") ~ "CARRIER",
-    gt_GT == "1|1" ~ "AFFECTED",
-    TRUE ~ NA_character_  # для всех остальных случаев (если есть)
-  )) %>% 
-  select(sid, Probe_Code = `Probe Code`, CHROM, POS, status) %>% 
-  left_join(
-    interpretation_df,
-    by = c("CHROM" = "Chr", "POS" = "END")
-  ) %>%
-  left_join(passport_long, 
-            by = c("Probe_Code", "Short_name"))
+  filter(!is.na(sid)) %>% 
+  mutate(
+    status = case_when(
+      gt_GT == "0|0" ~ "FREE",
+      gt_GT %in% c("0|1", "1|0") ~ "CARRIER",
+      gt_GT == "1|1" ~ "AFFECTED",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  select(sid, Probe_Code = `Probe Code`, CHROM, POS, status) %>%
+  left_join(interpretation_df, by = c("CHROM" = "Chr", "POS" = "END")) %>%
+  left_join(passport_long, by = c("Probe_Code", "Short_name"))
 ```
 
 
 ```{r}
 wide_df <- combined_df %>%
-  # Создаем комбинированную колонку со статусами через "/"
-  mutate(combined_status = paste(status, status_chip, sep = "/")) %>%
-  # Выбираем только нужные колонки
+  right_join(passport_long, by = c("Probe_Code", "Short_name")) %>%
+  mutate(
+    # coalesce берёт status из VCF, если есть, иначе оставляет NA
+    combined_status = paste(status, status_chip.y, sep = "/")
+  ) %>%
   select(sid, Probe_Code, Short_name, combined_status) %>%
-  # Преобразуем в широкий формат
   pivot_wider(
     id_cols = c(sid, Probe_Code),
     names_from = Short_name,
     values_from = combined_status
   ) %>%
-  # Переименовываем колонки для соответствия
   rename(`Probe Code` = Probe_Code)
 
 ```
